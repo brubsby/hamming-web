@@ -3,7 +3,9 @@ import string
 import requests
 import os
 import sys
+import json
 import networkx as nx
+from networkx.readwrite import json_graph
 from collections import deque
 
 WORDS_URL = "https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt"
@@ -106,11 +108,11 @@ def generate_graph(start_phrase, depth):
     if not is_valid_phrase(start_phrase, valid_words):
         print(f"Warning: Start phrase '{start_phrase}' contains words not in the dictionary.")
 
-    G = nx.Graph()
+    G = nx.DiGraph()
     G.add_node(start_phrase)
     
     queue = deque([(start_phrase, 0)])
-    visited = {start_phrase}
+    visited = {start_phrase: 0}
     
     print(f"Generating graph for '{start_phrase}' with depth {depth}...")
     
@@ -123,9 +125,11 @@ def generate_graph(start_phrase, depth):
         neighbors = get_neighbors(current_phrase, valid_words)
         for neighbor in neighbors:
             if neighbor not in visited:
-                visited.add(neighbor)
+                visited[neighbor] = current_depth + 1
                 queue.append((neighbor, current_depth + 1))
-            G.add_edge(current_phrase, neighbor)
+                G.add_edge(current_phrase, neighbor)
+            elif visited[neighbor] == current_depth + 1:
+                G.add_edge(current_phrase, neighbor)
             
     return G
 
@@ -133,15 +137,23 @@ def main():
     parser = argparse.ArgumentParser(description="Generate a graph of phrase neighbors.")
     parser.add_argument("phrase", type=str, help="The starting string/phrase.")
     parser.add_argument("--depth", type=int, default=1, help="Depth of search (default: 1).")
+    parser.add_argument("--json", type=str, help="Path to save the graph as a JSON file for visualization.")
     
     args = parser.parse_args()
     
     G = generate_graph(args.phrase, args.depth)
     
     print(f"\nGraph generated with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
-    print("Edges:")
-    for u, v in G.edges():
-        print(f"  {u} <-> {v}")
+    
+    if args.json:
+        data = json_graph.node_link_data(G)
+        with open(args.json, 'w') as f:
+            json.dump(data, f)
+        print(f"Graph data saved to {args.json}")
+    else:
+        print("Edges:")
+        for u, v in G.edges():
+            print(f"  {u} -> {v}")
 
 if __name__ == "__main__":
     main()
