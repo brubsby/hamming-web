@@ -270,6 +270,21 @@
 
         // --- Interaction Functions ---
 
+        function setAnimating(animating) {
+            const btn = document.getElementById('expandAllBtn');
+            if (animating) {
+                btn.disabled = true;
+                btn.style.opacity = "0.5";
+                btn.style.cursor = "not-allowed";
+                btn.innerText = "Expanding...";
+            } else {
+                btn.disabled = false;
+                btn.style.opacity = "1";
+                btn.style.cursor = "pointer";
+                btn.innerText = "Expand All (Depth +1)";
+            }
+        }
+
         function addRootNode(optPhrase) {
             const input = document.getElementById('startPhrase');
             // If event listener calls this, optPhrase might be the event object, so check type
@@ -298,101 +313,109 @@
         }
 
         async function expandNode(d, suppressUpdate = false) {
-            const neighbors = getNeighbors(d.id);
-            let currentDelay = 300;
+            setAnimating(true);
+            try {
+                const neighbors = getNeighbors(d.id);
+                let currentDelay = 300;
 
-            for (const nStr of neighbors) {
-                // Check if node exists
-                let neighborNode = nodes.find(n => n.id === nStr);
-                let addedAction = false;
-                
-                // If not, create it
-                if (!neighborNode) {
-                    // Position new node near parent to avoid chaos
-                    neighborNode = { 
-                        id: nStr, 
-                        x: d.x + (Math.random() - 0.5) * 50, 
-                        y: d.y + (Math.random() - 0.5) * 50 
-                    };
-                    nodes.push(neighborNode);
-                    addedAction = true;
-                }
+                for (const nStr of neighbors) {
+                    // Check if node exists
+                    let neighborNode = nodes.find(n => n.id === nStr);
+                    let addedAction = false;
+                    
+                    // If not, create it
+                    if (!neighborNode) {
+                        // Position new node near parent to avoid chaos
+                        neighborNode = { 
+                            id: nStr, 
+                            x: d.x + (Math.random() - 0.5) * 50, 
+                            y: d.y + (Math.random() - 0.5) * 50 
+                        };
+                        nodes.push(neighborNode);
+                        addedAction = true;
+                    }
 
-                // Check if link exists
-                const linkExists = links.some(l => {
-                    const s = l.source.id || l.source;
-                    const t = l.target.id || l.target;
-                    return (s === d.id && t === nStr) || (s === nStr && t === d.id);
-                });
+                    // Check if link exists
+                    const linkExists = links.some(l => {
+                        const s = l.source.id || l.source;
+                        const t = l.target.id || l.target;
+                        return (s === d.id && t === nStr) || (s === nStr && t === d.id);
+                    });
 
-                if (!linkExists) {
-                    links.push({ source: d.id, target: nStr });
-                    addedAction = true;
-                }
+                    if (!linkExists) {
+                        links.push({ source: d.id, target: nStr });
+                        addedAction = true;
+                    }
 
-                if (!suppressUpdate && addedAction) {
-                    updateGraph();
-                    await new Promise(r => setTimeout(r, currentDelay));
-                    currentDelay = Math.max(50, currentDelay - 5);
-                }
+                                    if (!suppressUpdate && addedAction) {
+                                        updateGraph();
+                                        await new Promise(r => setTimeout(r, currentDelay));
+                                        currentDelay = Math.max(1, currentDelay * 0.98);
+                                    }                }
+            } finally {
+                setAnimating(false);
             }
         }
 
         async function autoGenerate(startNode, maxDepth) {
             if (maxDepth <= 0) return;
             
-            // BFS Queue: { node, depth }
-            let queue = [{ node: startNode, d: 0 }];
-            let visited = new Set([startNode.id]);
-            let currentDelay = 300;
-            
-            // We perform the BFS purely to discover and add nodes/links
-            let head = 0;
-            while(head < queue.length) {
-                const { node, d } = queue[head++];
-                if (d >= maxDepth) continue;
+            setAnimating(true);
+            try {
+                // BFS Queue: { node, depth }
+                let queue = [{ node: startNode, d: 0 }];
+                let visited = new Set([startNode.id]);
+                let currentDelay = 300;
+                
+                // We perform the BFS purely to discover and add nodes/links
+                let head = 0;
+                while(head < queue.length) {
+                    const { node, d } = queue[head++];
+                    if (d >= maxDepth) continue;
 
-                const neighbors = getNeighbors(node.id);
+                    const neighbors = getNeighbors(node.id);
 
-                for (const nStr of neighbors) {
-                    let neighborNode = nodes.find(n => n.id === nStr);
-                    let addedAction = false;
-                    
-                    if (!neighborNode) {
-                        neighborNode = { 
-                            id: nStr, 
-                            x: node.x + (Math.random() - 0.5) * 50, 
-                            y: node.y + (Math.random() - 0.5) * 50 
-                        };
-                        nodes.push(neighborNode);
-                        addedAction = true;
-                    }
+                    for (const nStr of neighbors) {
+                        let neighborNode = nodes.find(n => n.id === nStr);
+                        let addedAction = false;
+                        
+                        if (!neighborNode) {
+                            neighborNode = { 
+                                id: nStr, 
+                                x: node.x + (Math.random() - 0.5) * 50, 
+                                y: node.y + (Math.random() - 0.5) * 50 
+                            };
+                            nodes.push(neighborNode);
+                            addedAction = true;
+                        }
 
-                    // Check Link
-                    const linkExists = links.some(l => {
-                        const s = l.source.id || l.source;
-                        const t = l.target.id || l.target;
-                        return (s === node.id && t === nStr) || (s === nStr && t === node.id);
-                    });
+                        // Check Link
+                        const linkExists = links.some(l => {
+                            const s = l.source.id || l.source;
+                            const t = l.target.id || l.target;
+                            return (s === node.id && t === nStr) || (s === nStr && t === node.id);
+                        });
 
-                    if (!linkExists) {
-                        links.push({ source: node.id, target: nStr });
-                        addedAction = true;
-                    }
+                        if (!linkExists) {
+                            links.push({ source: node.id, target: nStr });
+                            addedAction = true;
+                        }
 
-                    if (addedAction) {
-                        updateGraph();
-                        // Delay per item added
-                        await new Promise(r => setTimeout(r, currentDelay));
-                        currentDelay = Math.max(50, currentDelay - 5);
-                    }
-
-                    // Add to queue if not visited
-                    if (!visited.has(nStr)) {
-                        visited.add(nStr);
-                        queue.push({ node: neighborNode, d: d + 1 });
+                                            if (addedAction) {
+                                                updateGraph();
+                                                // Delay per item added
+                                                await new Promise(r => setTimeout(r, currentDelay));
+                                                currentDelay = Math.max(1, currentDelay * 0.98);
+                                            }
+                        // Add to queue if not visited
+                        if (!visited.has(nStr)) {
+                            visited.add(nStr);
+                            queue.push({ node: neighborNode, d: d + 1 });
+                        }
                     }
                 }
+            } finally {
+                setAnimating(false);
             }
         }
 
@@ -447,46 +470,50 @@
         }
 
         async function expandAllOneDepth() {
-            const currentNodes = [...nodes];
-            let currentDelay = 300;
+            setAnimating(true);
+            try {
+                const currentNodes = [...nodes];
+                let currentDelay = 300;
 
-            for (const d of currentNodes) {
-                const neighbors = getNeighbors(d.id);
+                for (const d of currentNodes) {
+                    const neighbors = getNeighbors(d.id);
 
-                for (const nStr of neighbors) {
-                    // Check if node exists
-                    let neighborNode = nodes.find(n => n.id === nStr);
-                    let addedAction = false;
-                    
-                    // If not, create it
-                    if (!neighborNode) {
-                        neighborNode = { 
-                            id: nStr, 
-                            x: d.x + (Math.random() - 0.5) * 50, 
-                            y: d.y + (Math.random() - 0.5) * 50 
-                        };
-                        nodes.push(neighborNode);
-                        addedAction = true;
-                    }
+                    for (const nStr of neighbors) {
+                        // Check if node exists
+                        let neighborNode = nodes.find(n => n.id === nStr);
+                        let addedAction = false;
+                        
+                        // If not, create it
+                        if (!neighborNode) {
+                            neighborNode = { 
+                                id: nStr, 
+                                x: d.x + (Math.random() - 0.5) * 50, 
+                                y: d.y + (Math.random() - 0.5) * 50 
+                            };
+                            nodes.push(neighborNode);
+                            addedAction = true;
+                        }
 
-                    // Check if link exists
-                    const linkExists = links.some(l => {
-                        const s = l.source.id || l.source;
-                        const t = l.target.id || l.target;
-                        return (s === d.id && t === nStr) || (s === nStr && t === d.id);
-                    });
+                        // Check if link exists
+                        const linkExists = links.some(l => {
+                            const s = l.source.id || l.source;
+                            const t = l.target.id || l.target;
+                            return (s === d.id && t === nStr) || (s === nStr && t === d.id);
+                        });
 
-                    if (!linkExists) {
-                        links.push({ source: d.id, target: nStr });
-                        addedAction = true;
-                    }
+                        if (!linkExists) {
+                            links.push({ source: d.id, target: nStr });
+                            addedAction = true;
+                        }
 
-                    if (addedAction) {
-                        updateGraph();
-                        await new Promise(r => setTimeout(r, currentDelay));
-                        currentDelay = Math.max(50, currentDelay - 5);
-                    }
+                                            if (addedAction) {
+                                                updateGraph();
+                                                await new Promise(r => setTimeout(r, currentDelay));
+                                                currentDelay = Math.max(1, currentDelay * 0.98);
+                                            }                    }
                 }
+            } finally {
+                setAnimating(false);
             }
         }
 
