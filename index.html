@@ -191,8 +191,8 @@
                 // Try loading from local cache first (relative to where index.html is served)
                 // We attempt to load both.
                 const [wordsText, namesText] = await Promise.all([
-                    fetch('.cache/words.txt').then(r => r.ok ? r.text() : Promise.reject('No words')),
-                    fetch('.cache/names.txt').then(r => r.ok ? r.text() : Promise.reject('No names'))
+                    fetch('https://raw.githubusercontent.com/dwyl/english-words/master/words_alpha.txt').then(r => r.ok ? r.text() : Promise.reject('No words')),
+                    fetch('https://raw.githubusercontent.com/dominictarr/random-name/master/first-names.txt').then(r => r.ok ? r.text() : Promise.reject('No names'))
                 ]);
 
                 const processLines = (text) => {
@@ -212,7 +212,7 @@
 
             } catch (e) {
                 console.error(e);
-                statusDiv.innerText = "Error loading word lists. Ensure .cache/words.txt and names.txt exist.";
+                statusDiv.innerText = "Error loading word lists from GitHub. Check your internet connection.";
             }
         }
 
