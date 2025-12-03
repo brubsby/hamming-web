@@ -21,12 +21,18 @@
             stroke: #fff;
             stroke-width: 1.5px;
             fill: #69b3a2;
+            cursor: pointer;
+            transition: fill 0.3s;
+        }
+        .node circle:hover {
+            fill: #8acbb8;
         }
         .node text {
             pointer-events: none;
             font-size: 12px;
             fill: #eee;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-shadow: 0 1px 0 #000;
         }
         .link {
             stroke: #999;
@@ -41,45 +47,102 @@
             transform: translate(-50%, -50%);
             font-size: 24px;
             color: #fff;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 10px;
+            pointer-events: none;
+            z-index: 200;
         }
         .controls {
             position: absolute;
             top: 10px;
             right: 10px;
-            background: rgba(30, 30, 30, 0.8);
+            background: rgba(30, 30, 30, 0.9);
             padding: 15px;
             border-radius: 8px;
             border: 1px solid #444;
             z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         .control-group {
-            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
         }
         .control-group label {
-            display: block;
             margin-bottom: 5px;
             font-size: 12px;
+            color: #aaa;
         }
-        .control-group input {
+        .control-group input[type="range"] {
             width: 150px;
+        }
+        .help-text {
+            font-size: 11px;
+            color: #aaa;
+            margin-bottom: 12px;
+            line-height: 1.4;
+            border-bottom: 1px solid #444;
+            padding-bottom: 8px;
+        }
+        .help-text strong {
+            color: #69b3a2;
+        }
+        .input-group {
+            display: flex;
+            gap: 5px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #555;
+            padding-bottom: 10px;
+        }
+        .input-group input[type="text"] {
+            background: #333;
+            border: 1px solid #555;
+            color: #eee;
+            padding: 5px;
+            border-radius: 4px;
+            flex-grow: 1;
+        }
+        .input-group button {
+            background: #69b3a2;
+            border: none;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .input-group button:hover {
+            background: #5aa090;
         }
     </style>
 </head>
 <body>
-    <div id="loading">Loading graph data...</div>
+    <div id="loading">Initializing...</div>
     
-    <div class="controls">
-        <div class="control-group">
-            <label for="linkDistance">Link Distance: <span id="linkDistanceVal">50</span></label>
-            <input type="range" id="linkDistance" min="10" max="200" value="50">
+            <div class="controls">
+            <div class="help-text">
+                <strong>Left-click</strong> node to expand.<br>
+                <strong>Right-click</strong> node to delete subtree.
+            </div>
+            <div class="input-group">
+                <input type="text" id="startPhrase" placeholder="Enter name (e.g. Your Name)" value="Your Name">
+                <button id="addNodeBtn">Add</button>
+            </div>
+            <div style="margin-bottom: 10px;">            <button id="expandAllBtn" style="width: 100%; padding: 6px; background: #3a3a3a; color: #ccc; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-size: 12px;">Expand All (Depth +1)</button>
         </div>
         <div class="control-group">
-            <label for="chargeStrength">Charge Strength: <span id="chargeStrengthVal">-300</span></label>
-            <input type="range" id="chargeStrength" min="-1000" max="0" value="-300">
+            <label for="linkDistance">Link Distance: <span id="linkDistanceVal">100</span></label>
+            <input type="range" id="linkDistance" min="10" max="200" value="100">
         </div>
         <div class="control-group">
-            <label for="collisionRadius">Collision Radius: <span id="collisionRadiusVal">10</span></label>
-            <input type="range" id="collisionRadius" min="0" max="50" value="10">
+            <label for="chargeStrength">Charge Strength: <span id="chargeStrengthVal">-30</span></label>
+            <input type="range" id="chargeStrength" min="-1000" max="0" value="-30">
+        </div>
+        <div class="control-group">
+            <label for="collisionRadius">Collision Radius: <span id="collisionRadiusVal">30</span></label>
+            <input type="range" id="collisionRadius" min="0" max="100" value="30">
         </div>
     </div>
 
@@ -92,216 +155,462 @@
     </svg>
 
     <script>
-        // Configuration
-        const DATA_FILE = 'graph.json';
+        // --- Configuration & State ---
         const NODE_RADIUS = 5;
-        let LINK_DISTANCE = 50;
-
-        // Setup SVG and Dimensions
+        let validWords = new Set();
+        
+        // Graph Data
+        let nodes = [];
+        let links = [];
+        
+        // --- D3 Setup ---
         const svg = d3.select("svg");
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+        let width = window.innerWidth;
+        let height = window.innerHeight;
 
-        // Zoom behavior
         const g = svg.append("g");
         const zoom = d3.zoom()
             .scaleExtent([0.1, 10])
-            .on("zoom", (event) => {
-                g.attr("transform", event.transform);
-            });
+            .on("zoom", (event) => g.attr("transform", event.transform));
         svg.call(zoom);
 
-        // UI Controls
-        const linkDistanceInput = document.getElementById('linkDistance');
-        const chargeStrengthInput = document.getElementById('chargeStrength');
-        const collisionRadiusInput = document.getElementById('collisionRadius');
+        // Simulation
+        const simulation = d3.forceSimulation(nodes)
+            .force("link", d3.forceLink(links).id(d => d.id).distance(100))
+            .force("charge", d3.forceManyBody().strength(-30))
+            .force("center", d3.forceCenter(width / 2, height / 2))
+            .force("collide", d3.forceCollide(NODE_RADIUS * 2 + 5)); // slightly larger than radius
+
+        // --- Logic: Dictionary & Neighbors ---
         
-        const linkDistanceVal = document.getElementById('linkDistanceVal');
-        const chargeStrengthVal = document.getElementById('chargeStrengthVal');
-        const collisionRadiusVal = document.getElementById('collisionRadiusVal');
+        const statusDiv = document.getElementById('loading');
 
-        // Load Data
-        d3.json(DATA_FILE + "?t=" + Date.now()).then(data => {
-            document.getElementById('loading').style.display = 'none';
+        async function loadDictionaries() {
+            statusDiv.innerText = "Loading dictionaries...";
+            try {
+                // Try loading from local cache first (relative to where index.html is served)
+                // We attempt to load both.
+                const [wordsText, namesText] = await Promise.all([
+                    fetch('.cache/words.txt').then(r => r.ok ? r.text() : Promise.reject('No words')),
+                    fetch('.cache/names.txt').then(r => r.ok ? r.text() : Promise.reject('No names'))
+                ]);
 
-            const links = data.links || data.edges;
+                const processLines = (text) => {
+                    text.split(/\r?\n/).forEach(line => {
+                        const w = line.trim().toLowerCase();
+                        if(w) validWords.add(w);
+                    });
+                };
 
-            // Initialize Simulation
-            const simulation = d3.forceSimulation(data.nodes)
-                .force("link", d3.forceLink(links).id(d => d.id).distance(LINK_DISTANCE))
-                .force("charge", d3.forceManyBody().strength(-300))
-                .force("center", d3.forceCenter(width / 2, height / 2))
-                .force("collide", d3.forceCollide(NODE_RADIUS * 2));
+                processLines(wordsText);
+                processLines(namesText);
 
-            // Control Listeners
-            linkDistanceInput.addEventListener('input', (e) => {
-                const val = +e.target.value;
-                linkDistanceVal.innerText = val;
-                simulation.force("link").distance(val);
-                simulation.alpha(1).restart();
+                statusDiv.style.display = 'none';
+                console.log(`Loaded ${validWords.size} words.`);
+                
+                processUrlParams();
+
+            } catch (e) {
+                console.error(e);
+                statusDiv.innerText = "Error loading word lists. Ensure .cache/words.txt and names.txt exist.";
+            }
+        }
+
+        function isValidPhrase(phrase) {
+            if (!phrase) return false;
+            const parts = phrase.split(/\s+/);
+            if (parts.length === 0) return false;
+            return parts.every(p => validWords.has(p.toLowerCase()));
+        }
+
+        function normalizePhrase(phrase) {
+            return phrase.trim().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+        }
+
+        function getNeighbors(phrase) {
+            const lowerPhrase = phrase.toLowerCase();
+            const neighbors = new Set();
+            const alphabet = "abcdefghijklmnopqrstuvwxyz";
+
+            // Helper to add if valid
+            const checkAndAdd = (candidate) => {
+                if (isValidPhrase(candidate)) {
+                    neighbors.add(normalizePhrase(candidate));
+                }
+            };
+
+            // 1. Deletions
+            for (let i = 0; i < lowerPhrase.length; i++) {
+                checkAndAdd(lowerPhrase.slice(0, i) + lowerPhrase.slice(i + 1));
+            }
+
+            // 2. Substitutions
+            for (let i = 0; i < lowerPhrase.length; i++) {
+                if (lowerPhrase[i] === ' ') continue;
+                const originalChar = lowerPhrase[i];
+                for (let char of alphabet) {
+                    if (char === originalChar) continue;
+                    checkAndAdd(lowerPhrase.slice(0, i) + char + lowerPhrase.slice(i + 1));
+                }
+            }
+
+            // 3. Insertions
+            for (let i = 0; i <= lowerPhrase.length; i++) {
+                for (let char of alphabet) {
+                    checkAndAdd(lowerPhrase.slice(0, i) + char + lowerPhrase.slice(i));
+                }
+            }
+
+            // Remove self
+            const normalizedStart = normalizePhrase(phrase);
+            if (neighbors.has(normalizedStart)) neighbors.delete(normalizedStart);
+
+            return Array.from(neighbors);
+        }
+
+        // --- Interaction Functions ---
+
+        function addRootNode(optPhrase) {
+            const input = document.getElementById('startPhrase');
+            // If event listener calls this, optPhrase might be the event object, so check type
+            let phrase = (typeof optPhrase === 'string' ? optPhrase : input.value).trim();
+            
+            if (!phrase) return null;
+            
+            phrase = normalizePhrase(phrase);
+            
+            if (!isValidPhrase(phrase)) {
+                alert(`"${phrase}" contains words not in the dictionary!`);
+                return null;
+            }
+
+            // Check if exists
+            let existing = nodes.find(n => n.id === phrase);
+            if (existing) return existing;
+
+            const newNode = { id: phrase, x: width/2, y: height/2 }; // Start center
+            nodes.push(newNode);
+            updateGraph();
+            
+            // Re-heat simulation
+            simulation.alpha(1).restart();
+            return newNode;
+        }
+
+        async function expandNode(d, suppressUpdate = false) {
+            const neighbors = getNeighbors(d.id);
+            let currentDelay = 300;
+
+            for (const nStr of neighbors) {
+                // Check if node exists
+                let neighborNode = nodes.find(n => n.id === nStr);
+                let addedAction = false;
+                
+                // If not, create it
+                if (!neighborNode) {
+                    // Position new node near parent to avoid chaos
+                    neighborNode = { 
+                        id: nStr, 
+                        x: d.x + (Math.random() - 0.5) * 50, 
+                        y: d.y + (Math.random() - 0.5) * 50 
+                    };
+                    nodes.push(neighborNode);
+                    addedAction = true;
+                }
+
+                // Check if link exists
+                const linkExists = links.some(l => {
+                    const s = l.source.id || l.source;
+                    const t = l.target.id || l.target;
+                    return (s === d.id && t === nStr) || (s === nStr && t === d.id);
+                });
+
+                if (!linkExists) {
+                    links.push({ source: d.id, target: nStr });
+                    addedAction = true;
+                }
+
+                if (!suppressUpdate && addedAction) {
+                    updateGraph();
+                    await new Promise(r => setTimeout(r, currentDelay));
+                    currentDelay = Math.max(50, currentDelay - 5);
+                }
+            }
+        }
+
+        async function autoGenerate(startNode, maxDepth) {
+            if (maxDepth <= 0) return;
+            
+            // BFS Queue: { node, depth }
+            let queue = [{ node: startNode, d: 0 }];
+            let visited = new Set([startNode.id]);
+            let currentDelay = 300;
+            
+            // We perform the BFS purely to discover and add nodes/links
+            let head = 0;
+            while(head < queue.length) {
+                const { node, d } = queue[head++];
+                if (d >= maxDepth) continue;
+
+                const neighbors = getNeighbors(node.id);
+
+                for (const nStr of neighbors) {
+                    let neighborNode = nodes.find(n => n.id === nStr);
+                    let addedAction = false;
+                    
+                    if (!neighborNode) {
+                        neighborNode = { 
+                            id: nStr, 
+                            x: node.x + (Math.random() - 0.5) * 50, 
+                            y: node.y + (Math.random() - 0.5) * 50 
+                        };
+                        nodes.push(neighborNode);
+                        addedAction = true;
+                    }
+
+                    // Check Link
+                    const linkExists = links.some(l => {
+                        const s = l.source.id || l.source;
+                        const t = l.target.id || l.target;
+                        return (s === node.id && t === nStr) || (s === nStr && t === node.id);
+                    });
+
+                    if (!linkExists) {
+                        links.push({ source: node.id, target: nStr });
+                        addedAction = true;
+                    }
+
+                    if (addedAction) {
+                        updateGraph();
+                        // Delay per item added
+                        await new Promise(r => setTimeout(r, currentDelay));
+                        currentDelay = Math.max(50, currentDelay - 5);
+                    }
+
+                    // Add to queue if not visited
+                    if (!visited.has(nStr)) {
+                        visited.add(nStr);
+                        queue.push({ node: neighborNode, d: d + 1 });
+                    }
+                }
+            }
+        }
+
+        function processUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            const startName = params.get('startName');
+            const depth = parseInt(params.get('depth')) || 0;
+
+            if (startName) {
+                // Update input box
+                document.getElementById('startPhrase').value = startName;
+                
+                const root = addRootNode(startName);
+                if (root && depth > 0) {
+                    // Allow UI to render root first, then generate
+                    setTimeout(() => autoGenerate(root, depth), 100);
+                }
+            }
+        }
+
+        function deleteSubtree(rootNodeId) {
+            // Logic similar to before, but working on local arrays
+            const nodesToRemove = new Set([rootNodeId]);
+            const queue = [rootNodeId];
+            
+            // Build adjacency list (outbound)
+            const adj = new Map();
+            links.forEach(l => {
+                const s = l.source.id;
+                const t = l.target.id;
+                if (!adj.has(s)) adj.set(s, []);
+                adj.get(s).push(t);
             });
 
-            chargeStrengthInput.addEventListener('input', (e) => {
-                const val = +e.target.value;
-                chargeStrengthVal.innerText = val;
-                simulation.force("charge").strength(val);
-                simulation.alpha(1).restart();
-            });
+            while (queue.length > 0) {
+                const u = queue.shift();
+                if (adj.has(u)) {
+                    adj.get(u).forEach(v => {
+                        if (!nodesToRemove.has(v)) {
+                            nodesToRemove.add(v);
+                            queue.push(v);
+                        }
+                    });
+                }
+            }
 
-            collisionRadiusInput.addEventListener('input', (e) => {
-                const val = +e.target.value;
-                collisionRadiusVal.innerText = val;
-                simulation.force("collide").radius(val);
-                simulation.alpha(1).restart();
-            });
+            // Remove
+            nodes = nodes.filter(n => !nodesToRemove.has(n.id));
+            links = links.filter(l => !nodesToRemove.has(l.source.id) && !nodesToRemove.has(l.target.id));
 
-            // Create Links
-            const link = g.append("g")
-                .attr("class", "links")
-                .selectAll("line")
-                .data(links)
-                .join("line")
-                .attr("class", "link");
+            updateGraph();
+        }
 
-            // Create Nodes
-            const node = g.append("g")
-                .attr("class", "nodes")
-                .selectAll("g")
-                .data(data.nodes, d => d.id) // Key function is important for updates
-                .join("g")
+        async function expandAllOneDepth() {
+            const currentNodes = [...nodes];
+            let currentDelay = 300;
+
+            for (const d of currentNodes) {
+                const neighbors = getNeighbors(d.id);
+
+                for (const nStr of neighbors) {
+                    // Check if node exists
+                    let neighborNode = nodes.find(n => n.id === nStr);
+                    let addedAction = false;
+                    
+                    // If not, create it
+                    if (!neighborNode) {
+                        neighborNode = { 
+                            id: nStr, 
+                            x: d.x + (Math.random() - 0.5) * 50, 
+                            y: d.y + (Math.random() - 0.5) * 50 
+                        };
+                        nodes.push(neighborNode);
+                        addedAction = true;
+                    }
+
+                    // Check if link exists
+                    const linkExists = links.some(l => {
+                        const s = l.source.id || l.source;
+                        const t = l.target.id || l.target;
+                        return (s === d.id && t === nStr) || (s === nStr && t === d.id);
+                    });
+
+                    if (!linkExists) {
+                        links.push({ source: d.id, target: nStr });
+                        addedAction = true;
+                    }
+
+                    if (addedAction) {
+                        updateGraph();
+                        await new Promise(r => setTimeout(r, currentDelay));
+                        currentDelay = Math.max(50, currentDelay - 5);
+                    }
+                }
+            }
+        }
+
+        function updateGraph() {
+            // Nodes
+            const nodeSel = g.select(".nodes").selectAll(".node")
+                .data(nodes, d => d.id);
+            
+            const nodeEnter = nodeSel.enter().append("g")
                 .attr("class", "node")
                 .call(d3.drag()
                     .on("start", dragstarted)
                     .on("drag", dragged)
                     .on("end", dragended))
+                // Click handler for expansion
+                .on("click", (event, d) => {
+                    if (event.defaultPrevented) return; // Ignore drag clicks
+                    expandNode(d);
+                })
+                // Right click for delete
                 .on("contextmenu", (event, d) => {
                     event.preventDefault();
-                    deleteSubtree(d);
+                    deleteSubtree(d.id);
                 });
 
-            node.append("circle")
-                .attr("r", NODE_RADIUS);
+            nodeEnter.append("circle").attr("r", NODE_RADIUS);
+            nodeEnter.append("text").attr("dx", 8).attr("dy", ".35em").text(d => d.id);
 
-            node.append("text")
-                .attr("dx", 8)
-                .attr("dy", ".35em")
-                .text(d => d.id);
+            nodeSel.exit().remove();
 
-            // Simulation Tick
-            simulation.on("tick", () => {
-                link
-                    .attr("x1", d => d.source.x)
-                    .attr("y1", d => d.source.y)
-                    .attr("x2", d => d.target.x)
-                    .attr("y2", d => d.target.y);
+            // Links
+            const linkSel = g.select(".links").selectAll(".link")
+                .data(links, d => d.source.id + "-" + d.target.id);
+            
+            linkSel.enter().append("line")
+                .attr("class", "link")
+                .lower(); // Put links behind nodes
 
-                node
-                    .attr("transform", d => `translate(${d.x},${d.y})`);
-            });
+            linkSel.exit().remove();
 
-            function deleteSubtree(rootNode) {
-                const nodesToRemove = new Set([rootNode.id]);
-                const queue = [rootNode.id];
-                
-                // Build adjacency list for children (source -> target)
-                const childrenMap = new Map();
-                links.forEach(l => {
-                    // d3.forceLink replaces ids with object references, so we check both
-                    const sourceId = l.source.id || l.source;
-                    const targetId = l.target.id || l.target;
-                    
-                    if (!childrenMap.has(sourceId)) childrenMap.set(sourceId, []);
-                    childrenMap.get(sourceId).push(targetId);
-                });
+            // Restart simulation with new reference
+            simulation.nodes(nodes);
+            simulation.force("link").links(links);
+            simulation.alpha(1).restart();
+        }
 
-                // BFS to find all descendants
-                while (queue.length > 0) {
-                    const currentId = queue.shift();
-                    if (childrenMap.has(currentId)) {
-                        const children = childrenMap.get(currentId);
-                        children.forEach(childId => {
-                            if (!nodesToRemove.has(childId)) {
-                                nodesToRemove.add(childId);
-                                queue.push(childId);
-                            }
-                        });
-                    }
-                }
+        // --- Setup ---
 
-                // Filter nodes
-                data.nodes = data.nodes.filter(n => !nodesToRemove.has(n.id));
-                
-                // Filter links (remove if source OR target is removed)
-                // We must update the 'links' variable which is used by the simulation
-                const linksToKeep = links.filter(l => {
-                    const sourceId = l.source.id || l.source;
-                    const targetId = l.target.id || l.target;
-                    return !nodesToRemove.has(sourceId) && !nodesToRemove.has(targetId);
-                });
-                
-                // Update the data reference (if links was a separate var, update it)
-                // In this scope, 'links' was const, so we might need to modify the array in place or handle the update carefully.
-                // Since 'links' is a const reference to 'data.links' (or edges), let's re-assign to data.links/edges and update simulation.
-                // Actually, let's just update the array the simulation uses.
-                
-                // Simplest way: modify the arrays in place or re-assign if possible. 
-                // Since we can't reassign const 'links', let's update data.links/edges and re-run the join.
-                
-                if (data.links) data.links = linksToKeep;
-                if (data.edges) data.edges = linksToKeep;
-                
-                updateGraph(data.nodes, linksToKeep);
-            }
+        // Groups
+        g.append("g").attr("class", "links");
+        g.append("g").attr("class", "nodes");
 
-            function updateGraph(newNodes, newLinks) {
-                // Update nodes
-                const nodeSelection = g.select(".nodes").selectAll(".node")
-                    .data(newNodes, d => d.id);
-                
-                nodeSelection.exit().remove();
-
-                // Update links
-                const linkSelection = g.select(".links").selectAll(".link")
-                    .data(newLinks, d => d.id ? d.id : (d.source.id + "-" + d.target.id)); // Use a key for links too
-
-                linkSelection.exit().remove();
-
-                // Restart simulation with new data
-                simulation.nodes(newNodes);
-                simulation.force("link").links(newLinks);
-                simulation.alpha(1).restart();
-            }
-
-            function dragstarted(event, d) {
-                if (!event.active) simulation.alphaTarget(0.3).restart();
-                d.fx = d.x;
-                d.fy = d.y;
-            }
-
-            function dragged(event, d) {
-                d.fx = event.x;
-                d.fy = event.y;
-            }
-
-            function dragended(event, d) {
-                if (!event.active) simulation.alphaTarget(0);
-                d.fx = null;
-                d.fy = null;
-            }
-
-            // Handle window resize
-            window.addEventListener('resize', () => {
-                const newWidth = window.innerWidth;
-                const newHeight = window.innerHeight;
-                
-                svg.attr("width", newWidth).attr("height", newHeight);
-                simulation.force("center", d3.forceCenter(newWidth / 2, newHeight / 2));
-                simulation.alpha(1).restart();
-            });
-        }).catch(error => {
-            console.error("Error loading the data:", error);
-            document.getElementById('loading').innerText = "Error loading 'graph.json'. Make sure to generate it first.";
+        // Controls
+        document.getElementById('addNodeBtn').addEventListener('click', () => addRootNode());
+        document.getElementById('expandAllBtn').addEventListener('click', expandAllOneDepth);
+        document.getElementById('startPhrase').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') addRootNode();
         });
+
+        // Physics Sliders
+        const linkDistanceInput = document.getElementById('linkDistance');
+        const chargeStrengthInput = document.getElementById('chargeStrength');
+        const collisionRadiusInput = document.getElementById('collisionRadius');
+        
+        linkDistanceInput.addEventListener('input', (e) => {
+            const v = +e.target.value;
+            document.getElementById('linkDistanceVal').innerText = v;
+            simulation.force("link").distance(v);
+            simulation.alpha(1).restart();
+        });
+        chargeStrengthInput.addEventListener('input', (e) => {
+            const v = +e.target.value;
+            document.getElementById('chargeStrengthVal').innerText = v;
+            simulation.force("charge").strength(v);
+            simulation.alpha(1).restart();
+        });
+        collisionRadiusInput.addEventListener('input', (e) => {
+            const v = +e.target.value;
+            document.getElementById('collisionRadiusVal').innerText = v;
+            simulation.force("collide").radius(v);
+            simulation.alpha(1).restart();
+        });
+
+        // Standard Drag handlers
+        function dragstarted(event, d) {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        }
+        function dragged(event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        }
+        function dragended(event, d) {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }
+        
+        // Tick
+        simulation.on("tick", () => {
+            g.select(".links").selectAll(".link")
+                .attr("x1", d => d.source.x)
+                .attr("y1", d => d.source.y)
+                .attr("x2", d => d.target.x)
+                .attr("y2", d => d.target.y);
+
+            g.select(".nodes").selectAll(".node")
+                .attr("transform", d => `translate(${d.x},${d.y})
+`);
+        });
+
+        // Window Resize
+        window.addEventListener('resize', () => {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            svg.attr("width", width).attr("height", height);
+            simulation.force("center", d3.forceCenter(width / 2, height / 2));
+            simulation.alpha(1).restart();
+        });
+
+        // Start
+        loadDictionaries();
+
     </script>
 </body>
 </html>
